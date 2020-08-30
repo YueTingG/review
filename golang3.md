@@ -106,6 +106,14 @@ type mspan struct {
 
 ![2020-02-29-15829868066499-mspan-and-objects](C:\Users\78478\Desktop\review\2020-02-29-15829868066499-mspan-and-objects.png)
 
+#### 如何提取空闲内存（对象）（这个最重要，要结合上面的结构图）
+
+这里要说明的是，申请内存本质**就是获取 mspan 上空闲的跨度类对象**。
+
+你想想嘛，我现在要申请一块内存，是不是为了一个对象去申请一块内存也就是new之类的，最终是不是落到了某一个 mspan 上面？具体现在是那一块 mspan，是不是根据你要申请的 size 来决定？然后最后确定是要哪块 mspan!
+
+那这块 mspan 就会从 `allocCache` 上判断现在的 mspan 上面还有哪些空闲对象，然后分配给要申请的操作。
+
 #### 跨度类
 
 刚才上面，我们重点提到了每个 `mspan` 上其实是按对象来分的，这里重点说一下。
@@ -139,7 +147,7 @@ type mspan struct {
 
 ![2020-02-29-15829868066504-mspan-max-waste-memory](C:\Users\78478\Desktop\review\2020-02-29-15829868066504-mspan-max-waste-memory.png)
 
-## 线程缓存
+## 线程缓存（mcache）
 
 #### 数据结构
 
@@ -149,4 +157,135 @@ type mcache struct {
 }
 ```
 
-从上面可以看出，
+从上面可以看出，`alloc` 是一个数组，里面存放着 mspan，真正被使用其实是从这里开始。上面讲的 mspan 的使用其实是 mspan 被使用了之后，如果提取里面的跨度类。
+
+现在讲的是如何提取一个 mspan，概念的维度是不一样的。
+
+![2020-02-29-15829868066512-mcache-and-mspans](C:\Users\78478\Desktop\review\2020-02-29-15829868066512-mcache-and-mspans.png)
+
+#### 与工作线程 M 的关系
+
+mcache 是 Go 语言中的线程缓存，它会与线程上的处理器一一绑定，主要用来缓存用户程序申请的微小对象。 
+
+也因为 mcache 和线程是 1:1 关系，所以不存在锁的竞争关系。
+
+#### 微分配器
+
+线程缓存中还包含几个用于分配微对象的字段，下面的这三个字段组成了微对象分配器，专门为 16 字节以下的对象申请和管理内存：
+
+```go
+type mcache struct {
+    alloc [numSpanClasses]*mspan
+    
+	tiny             uintptr
+	tinyoffset       uintptr
+	local_tinyallocs uintptr
+}
+```
+
+ **微分配器**只会用于分配非指针类型的内存，上述三个字段中 `tiny` 会指向堆中的一篇内存，`tinyOffset` 是下一个空闲内存所在的偏移量，最后的 `local_tinyallocs` 会记录内存分配器中分配的对象个数。 
+
+![](C:\Users\78478\Desktop\review\2020-02-29-15829868066543-tiny-allocator.png)
+
+#### 使用
+
+好了，现在我们可以大概连着 mspan 来讲一下到底是怎么使用这个内存管理（仅仅从 mcache 维度来讲）。
+
+1. 我一个协程上的 g 想要申请内存，可以知道这个内存的大小 `size`。
+2. 根据 `size` 可以算出（这边有个计算公式，暂不清楚计算的依据是什么）`mcache.alloc `数组的索引。
+3. 根据 `mcache.alloc[spc]` 可以获取到里面的 `mspan`，好了到这一步一切就好办了，下面其实就是上面我们介绍的从 `mspan` 里面提取可用的跨度类对象，根据 `allocCache` 位图去判断还没有空闲对象。
+4. 如果 mcache 中的 mspan 上面没有空闲对象，那么就去 mcentral 获取，mcentral 还没有，就去 mheap 获取，mheap 没有就会去操作系统申请一块内存。
+
+## 中心缓存
+
+#### 数据结构
+
+```go
+type mcentral struct {
+	lock      mutex
+	spanclass spanClass
+    
+    // 尚有空闲object的mspan链表
+	nonempty  mSpanList
+	empty     mSpanList
+	nmalloc uint64
+}
+```
+
+根据数据结构可以看出，mcentral 有两个 **mspan** **链表**，其中 `nonempty` 是包含空闲的跨度类的链表。
+
+![](C:\Users\78478\Desktop\review\2020-02-29-15829868066519-mcentral-and-mspans.png)
+
+#### 使用
+
+先从 nonempty 当中获取到 mspan，然后也是根据位图去获取 mspan 里面的空闲对象。
+
+然后尝试从 empty 里面获取。
+
+如果没有则向堆申请。
+
+## 页堆
+
+#### 数据结构
+
+ Go 语言程序只会存在一个全局的结构，而堆上初始化的所有对象都由该结构体统一管理，该结构体中包含两组非常重要的字段： 其中一个是全局的中心缓存列表 `central`，另一个是管理堆区内存区域的 `arenas` 以及相关字段。 
+
+```go
+type mheap struct {
+	lock mutex
+	
+	// spans: 指向mspans区域，用于映射mspan和page的关系
+	spans []*mspan 
+	
+	// 指向bitmap首地址，bitmap是从高地址向低地址增长的
+	bitmap uintptr 
+
+	// 管理堆区内存
+    arenas [1 << arenaL1Bits]*[1 << arenaL2Bits]*heapArena
+
+	central [67*2]struct {
+		// 管理 mcentral
+		mcentral mcentral
+		pad [sys.CacheLineSize - unsafe.Sizeof(mcentral{})%sys.CacheLineSize]byte
+	}
+}
+```
+
+![](C:\Users\78478\Desktop\review\169755c8b91af501.png)
+
+#### 使用
+
+获取下一个空闲的内存空间，如果没有则向系统申请。
+
+## 内存管理的对象
+
+#### 对象大小
+
+Go 语言的内存分配器会根据申请分配的内存大小选择不同的处理逻辑，运行时根据对象的大小将对象分成微对象、小对象和大对象三种：
+
+要注意的是，微对象（tiny）不包括 16B，16B是小对象，而且微对象的范围很小，而小对象的范围很大，到 32KB，而不是 32B。
+
+|  类别  |     大小      |
+| :----: | :-----------: |
+| 微对象 |  `(0, 16B)`   |
+| 小对象 | `[16B, 32KB]` |
+| 大对象 | `(32KB, +∞)`  |
+
+#### 微对象（tiny）
+
+1. 先考虑用 mcache 上的 tiny 指针来获取内存，tiny 指针指向一块 16B 的堆内存。
+2. 如果 tiny 没有则从 mcache 上的 mspan 数组获取 mspan，然后就是根据位图获取空闲对象。
+3. 还没有就向 mcentral 获取，而 mcentral 没有就会自己向 mheap 获取。
+
+#### 小对象（small）
+
+1. 确定分配对象的大小，以及跨度类。
+2. 尝试从 mcache 的数组中获取 mspan，根据位图获取分配对象。
+3. 尝试向 mcentral 或者 mheap 获取空闲内存。
+
+#### 大对象
+
+直接从 mheap 上获取内存。
+
+## golang 调度/GMP模型/GOROUTINE实现
+
