@@ -12,18 +12,84 @@
 | HASH     | 包含键值对的无序散列表 | 添加、获取、移除单个键值对 获取所有键值对 检查某个键是否存在 |
 | ZSET     | 有序集合               | 添加、获取、删除元素 根据分值范围或者成员来获取元素 计算一个键的排名 |
 
-#### 哈希对象
+## 对象
 
-哈希对象的编码可以是 `ziplist` 或者 `hashtable` 。 
+每一个对象都是一个 redisObject 结构体，我们知道 redis 往往有k-v，对象就是里面的 v，注意对象中不包含 key 的信息。那么产生疑问，在哪里关联 kv 的信息？
 
-**编码转换**
+实际上，在 v 之外还有一个 map，这个 map 隐射了 k 与 v（redisObject）之间的关系。
+
+## 什么是编码对象
+
+理解上你就可以理解成，这种对象（redis 数据类型）底层用什么实现的。
+
+## 字符串对象
+
+#### 编码对象
+
+int，raw，embstr
+
+#### int
+
+好理解，实际上就是当
+
+```
+redis > set number 10086
+OK
+
+redis > OBJECT EXCODING number
+“int”
+```
+
+value 是 int 的时候，底层的值就用 int
+
+#### raw
+
+```
+redis > set number “aasdsdasadsadsadsadsacxzcxzcxzczvcvxcvcxvcxvxcv....”
+OK
+
+redis > OBJECT EXCODING number
+“raw”
+```
+
+value 是字符串的时候，注意字符串的长度要大于 39。
+
+#### embstr
+
+```
+redis > set number “hello”
+OK
+
+redis > OBJECT EXCODING number
+“embstr”
+```
+
+value 的值作为字符串且小于等于39。
+
+## LIST 列表对象
+
+#### 编码对象
+
+压缩列表，双端列表
+
+
+
+## 哈希对象
+
+#### 编码对象
+
+`ziplist` 或者 `hashtable` 。 
+
+#### 编码转换
 
 当哈希对象可以同时满足以下两个条件时， 哈希对象使用 `ziplist` 编码：
 
 1. 哈希对象保存的所有键值对的键和值的字符串长度都小于 `64` 字节；
 2. 哈希对象保存的键值对数量小于 `512` 个；
 
-#### 集合对象
+
+
+## 集合对象
 
  集合对象的编码可以是 `intset` 或者 `hashtable` 。 
 
@@ -46,7 +112,7 @@
 
 不能满足这两个条件的集合对象需要使用 `hashtable` 编码。
 
-#### 有序集合对象
+## 有序集合对象
 
  有序集合的编码可以是 `ziplist` 或者 `skiplist` 。 
 
@@ -72,7 +138,29 @@ Zscore（获取某个成员的得分）：需要map来实现
 
  https://redisbook.readthedocs.io/en/latest/compress-datastruct/ziplist.html#ziplist-chapter 
 
-#### 压缩列表
+## 压缩列表
+
+#### 数据结构
+
+压缩列表本质就是一个字节数组。
+
+```
+unsigned char *ziplistNew(void) {
+    unsigned int bytes = ZIPLIST_HEADER_SIZE+1;
+    unsigned char *zl = zmalloc(bytes); // 字节数组，里面就是一个个entry
+    // 压缩列表总字节长度
+    ZIPLIST_BYTES(zl) = intrev32ifbe(bytes);
+    // 尾部节点字节距离
+    ZIPLIST_TAIL_OFFSET(zl) = intrev32ifbe(ZIPLIST_HEADER_SIZE);
+    // 压缩列表节点个数
+    ZIPLIST_LENGTH(zl) = 0;
+    // 255特殊结尾值
+    zl[bytes-1] = ZIP_END;
+    return zl;
+}
+```
+
+![](C:\Users\78478\Desktop\review\r.png)
 
  Ziplist 是由一系列特殊编码的内存块构成的列表 
 
@@ -81,7 +169,7 @@ Zscore（获取某个成员的得分）：需要map来实现
 3. 怎么找到上一个结点，通过前一个结点的长度来找到上一个结点
 4. encoding和length决定了保存在content里面的数据和长度
 
-#### 字典
+## 字典
 
 1. 结构
 2. rehash
@@ -90,7 +178,7 @@ Zscore（获取某个成员的得分）：需要map来实现
      - 当结点数大于数组的长度并且 `dict_can_resize`  为真的时候（当进行数据库持久化的时候 `dict_can_resize`  为假），这个时候进行rehash
      - 如果结点数/数组长度大于变量 `dict_force_resize_ratio`  （目前版本是5），强制rehash不管有没有在持久化
 
-#### 跳跃表
+## 跳跃表
 
 资料很不好，明明考的多但是很多人解释得很垃圾
 

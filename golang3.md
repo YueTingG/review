@@ -287,5 +287,120 @@ Go 语言的内存分配器会根据申请分配的内存大小选择不同的�
 
 直接从 mheap 上获取内存。
 
-## golang 调度/GMP模型/GOROUTINE实现
+## 假如你发现你写的go程序占用cpu100%，那你要怎么解决
+
+大杀器 https://segmentfault.com/a/1190000016412013
+
+用 pprof 尝试 cpu和内存占用，然后定位到某一个函数，然后 review 代码。
+
+```
+package main
+
+import (
+    "log"
+    "net/http"
+    _ "net/http/pprof" // 引入这个官方包
+    "github.com/EDDYCJY/go-pprof-example/data"
+)
+
+func main() {
+    go func() {
+        for {
+            log.Println(data.Add("https://github.com/EDDYCJY"))
+        }
+    }()
+
+    http.ListenAndServe("0.0.0.0:6060", nil) // 监听 6060 这个端口
+}
+```
+
+命令的使用
+
+```
+// 进入交互式终端
+go tool pprof http://localhost:6060/debug/pprof/profile
+
+// 查看 CPU 占用较高的调用
+top
+
+// 查看问题具体在代码的哪一个位置，Eat 是具体函数
+list 函数名
+```
+
+#### 内存
+
+如果是内存的问题也是一样的，只不过第一个命令改成  `go tool pprof http://localhost:6060/debug/pprof/heap`  （最后变成 heap），然后 top，看看是哪个函数，然后 list 函数名
+
+## 最基本的生产者消费者模型
+
+```
+package main
+
+// 无缓冲的channel
+
+import (
+	"fmt"
+	"time"
+)
+
+func produce(ch chan<- int) {
+	for i := 0; i < 10; i++ {
+		ch <- i
+		fmt.Println("Send:", i)
+	}
+}
+
+func consumer(ch <-chan int) {
+	for i := 0; i < 10; i++ {
+		v := <-ch
+		fmt.Println("Receive:", v)
+	}
+}
+
+// 因为channel没有缓冲区，所以当生产者给channel赋值后，
+// 生产者线程会阻塞，直到消费者线程将数据从channel中取出
+// 消费者第一次将数据取出后，进行下一次循环时，消费者的线程
+// 也会阻塞，因为生产者还没有将数据存入，这时程序会去执行
+// 生产者的线程。程序就这样在消费者和生产者两个线程间不断切换，直到循环结束。
+func main() {
+	ch := make(chan int)
+	go produce(ch)
+	go consumer(ch)
+	time.Sleep(1 * time.Second)
+}
+```
+
+有缓冲
+
+```
+package main
+
+// 带缓冲区的channel
+
+import (
+	"fmt"
+	"time"
+)
+
+func produce(ch chan<- int) {
+	for i := 0; i < 10; i++ {
+		ch <- i
+		fmt.Println("Send:", i)
+	}
+}
+
+func consumer(ch <-chan int) {
+	for i := 0; i < 10; i++ {
+		v := <-ch
+		fmt.Println("Receive:", v)
+	}
+}
+
+func main() {
+	ch := make(chan int, 10)
+	go produce(ch)
+	go consumer(ch)
+	time.Sleep(1 * time.Second)
+}
+```
 

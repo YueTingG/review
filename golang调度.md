@@ -300,7 +300,7 @@ func newproc(siz int32, fn *funcval) {
 
 2. 调用 `runtime.malg` 函数生成一个新的 `runtime.g`函数并将当前结构体追加到全局的 Goroutine 列表 `allgs` 中。
 
-   调用 `runtime.malg` 会为 g 分配 2KB 的栈空间。
+   调用 new 创建 g 结构体（就是我们通常创建结构体那样，只不过它用的是 new），然后调用 `runtime.malg` 会为 g 分配 2KB 的栈空间。
 
 *我们这里需要稍微说明一下，一个G一但被创建，那就不会消失，因为runtime有个`allgs`保存着所有的 g 指针，但不要担心，g 对象引用的其他对象是会释放的，所以也占不了啥内存，而且会把 G 放到 gFree 里面*
 
@@ -358,7 +358,7 @@ func newproc1(fn *funcval, argp *uint8, narg int32, callergp *g, callerpc uintpt
 
 所以这里的代码应该是这样的：
 
-```
+```go
 	...
 	runqput(_p_, newg, true)
 
@@ -567,3 +567,225 @@ linux平台下，是调用 `clone` 系统调用来实现创建线程。然而，
 - 协作式调度 — [`runtime.Gosched`](https://github.com/golang/go/blob/64c22b70bf00e15615bb17c29f808b55bc339682/src/runtime/proc.go#L267) -> [`runtime.gosched_m`](https://github.com/golang/go/blob/64c22b70bf00e15615bb17c29f808b55bc339682/src/runtime/proc.go#L2709) -> [`runtime.goschedImpl`](https://github.com/golang/go/blob/64c22b70bf00e15615bb17c29f808b55bc339682/src/runtime/proc.go#L2693)
 - 系统监控 — [`runtime.sysmon`](https://github.com/golang/go/blob/64c22b70bf00e15615bb17c29f808b55bc339682/src/runtime/proc.go#L4455) -> [`runtime.retake`](https://github.com/golang/go/blob/64c22b70bf00e15615bb17c29f808b55bc339682/src/runtime/proc.go#L4569) -> [`runtime.preemptone`](https://github.com/golang/go/blob/64c22b70bf00e15615bb17c29f808b55bc339682/src/runtime/proc.go#L4666)
 
+## 阻塞是怎么做到的
+
+我们知道，调度的本质其实就是阻塞和运行，运行我们能够理解，选出一个 G 然后 `execute`，这个就是运行？问题是怎么让原来已经在运行的 G 停下来呢？
+
+其实，你仔细想一想，是不是用新的 G 替换掉原来旧的 G 就是阻塞呢？或者我这么讲，当我执行 `execute`  的时候，原来的 G 还在继续运行吗？肯定没在运行啦，你每个 p 只有一个 G 可以在运行，也就是说实际上并没有什么停掉 G 的代码，当 `schedule` 函数执行到最后的 `execute`  的时候，就是在阻塞原来的 G 并且运行新的 G。
+
+因为我新的运行了，意味着把旧的 G 给顶替掉了。
+
+## 主动挂起
+
+我又看了一下连接，它里面的意思好像是”挂起“代表着，不会被 `schedule` 再一次调度到，总之挂起就是无法再被调度到，除非你用 channel 做一些事情，否则什么事情不做，无法再次运行，这才能叫挂起，区别于阻塞，阻塞你完全有可能随便阻塞一会，实际上你啥都没干（你没做实际意义上解除阻塞的事情）一会后又轮到你运行了。
+
+#### gopark 函数
+
+[`runtime.gopark`](https://github.com/golang/go/blob/64c22b70bf00e15615bb17c29f808b55bc339682/src/runtime/proc.go#L287) 是触发调度最常见的方法，该函数会将当前 Goroutine 暂停，**被暂停的任务不会放回运行队列**，我们来分析该函数的实现原理： 
+
+```go
+func gopark(unlockf func(*g, unsafe.Pointer) bool, lock unsafe.Pointer, reason waitReason, traceEv byte, traceskip int) {
+	mp := acquirem()
+	gp := mp.curg
+	
+    ...
+    
+    // 最重要
+	mcall(park_m)
+}
+
+func park_m(gp *g) {
+	_g_ := getg()
+
+	casgstatus(gp, _Grunning, _Gwaiting)
+	dropg()
+
+	schedule()
+}
+```
+
+#### mcall 函数
+
+首先，我们需要回答几个问题，你挂起协程（线程，进程），肯定要做的一件事请是什么？我们通常说的，要保存先尝，你不保存以后怎么恢复嘛。但是，你看无论是 `gopark` 还是 `park_m`，都没有有关现场保存的代码（不要说是我没贴出来，本来没保存）
+
+这个任务就是 `mcall` 完成的，具体的实现这里没有，但是可以根据官方的注释，大概说一下它做了什么事：
+
+1. `mcall` 从 g 切换到 g0 堆栈并调用 `fn(g)`，其中 g 是发出调用的 goroutine。
+2. `mcall` 将 g 的当前 `PC / SP` 保存在 `g-> sched` 中，以便以后可以恢复。
+
+#### park_m 函数
+
+```go
+func park_m(gp *g) {
+	_g_ := getg()
+
+	casgstatus(gp, _Grunning, _Gwaiting)
+	dropg()
+
+	schedule()
+}
+```
+
+两件事：
+
+1.  将当前 Goroutine 的状态从 `_Grunning` 切换至 `_Gwaiting` 。
+2.  调用 [`runtime.dropg`](https://github.com/golang/go/blob/64c22b70bf00e15615bb17c29f808b55bc339682/src/runtime/proc.go#L2571) 移除线程和 Goroutine 之间的关联。
+
+好了，这里就有一个疑问了，你把 G 给移除了，又没有把它放到运行队列（全局和本地都没有 G 了），那我以后怎么恢复这个 G，我上哪去找它？？
+
+其实调度函数 `schedule` 是真的从此就不调度这个 G 了，因为它已经不在调度这个模块了。
+
+那它是怎么恢复的？总不能就把这个 G 给扔了把？详情看下面
+
+#### goready
+
+其实，`gopark`  本身就不是单独使用的，它总是要配合 golang 的其他特性一起完成工作，例如 channel。channel 的代码中会调用 `gopark` 挂起当前 G，上面也说了，G 不会放到调度的队列里面去了，但是它会被放到 channel 的接收队列或者发送队列（具体看我的 channel 实现的讲解）。
+
+所以它的恢复，也是由 channel 负责，举个例子：
+
+1. 我的一个 G 往一个无缓冲 channel 发送，这样会阻塞嘛，这个过程会调用 `gopark`。所以现在的 G 就被移除了（不在调度这个模块了），但是 channel 会把 G 放到自己的发送队列。
+2. 接着我另外一个 G （不是上面的 G）去监听接收这个 channel，它就会把 channel 的发送队列里面的 G 拿出来，这个过程会执行到 goready。
+
+所以，实际上，gopark 和 goready 总是一块配对使用，但是使用他们的往往不是调度这个模块，而是 golang 的其他特性，例如 channel。
+
+```go
+func goready(gp *g, traceskip int) {
+	systemstack(func() {
+		ready(gp, traceskip, true)
+	})
+}
+
+func ready(gp *g, traceskip int, next bool) {
+	_g_ := getg()
+
+	casgstatus(gp, _Gwaiting, _Grunnable)
+	runqput(_g_.m.p.ptr(), gp, next)
+	if atomic.Load(&sched.npidle) != 0 && atomic.Load(&sched.nmspinning) == 0 {
+		wakep()
+	}
+}
+```
+
+## 协作式调度
+
+我第一次看到这玩意惊呆了，卧槽居然还有这种东西。真的有主动让出处理器的函数（有并不稀奇，稀奇的居然能直接用），还是可导出的，也就是我们也可以调用的函数，牛逼。
+
+```go
+func Gosched() {
+	checkTimeouts()
+	mcall(gosched_m) // mcall 保存现场
+}
+
+func gosched_m(gp *g) {
+	goschedImpl(gp)
+}
+
+func goschedImpl(gp *g) {
+	casgstatus(gp, _Grunning, _Grunnable) // 设置 G 的状态为 _Grunnable
+	dropg() // 移除 g 和 线程之间的关联
+	lock(&sched.lock)
+	globrunqput(gp) // 把 g 放到全局队列
+	unlock(&sched.lock)
+
+	schedule()
+}
+```
+
+1. 同样要注意保存现场，切换到 g0，所以有 `mcall`。
+2. 把 G 的状态设置成  `_Grunnable`。
+3.  移除 g 和 线程之间的关联。
+4. 把 g 放到全局队列。
+
+## 系统调用
+
+```go
+#define INVOKE_SYSCALL	INT	$0x80
+
+TEXT ·Syscall(SB),NOSPLIT,$0-28
+	// 调用前准备
+	CALL	runtime·entersyscall(SB)
+	...
+	INVOKE_SYSCALL // 系统调用
+	...
+
+	// 调用后的恢复
+	CALL	runtime·exitsyscall(SB)
+	RET
+ok:
+	...
+	CALL	runtime·exitsyscall(SB)
+	RET
+```
+
+#### 调用前准备
+
+```go
+func reentersyscall(pc, sp uintptr) {
+	_g_ := getg()
+	_g_.m.locks++
+	_g_.stackguard0 = stackPreempt
+	_g_.throwsplit = true
+
+	save(pc, sp)
+	_g_.syscallsp = sp
+	_g_.syscallpc = pc
+	casgstatus(_g_, _Grunning, _Gsyscall)
+
+	_g_.m.syscalltick = _g_.m.p.ptr().syscalltick
+	_g_.m.mcache = nil
+	pp := _g_.m.p.ptr()
+	pp.m = 0
+	_g_.m.oldp.set(pp)
+	_g_.m.p = 0
+	atomic.Store(&pp.status, _Psyscall)
+	if sched.gcwaiting != 0 {
+		systemstack(entersyscall_gcwait)
+		save(pc, sp)
+	}
+	_g_.m.locks--
+}
+```
+
+1. 保存当前的程序计数器 PC 和栈指针 SP 中的内容。（保存现场）
+2. 将 Goroutine 的状态更新至 `_Gsyscall`。
+3. 将 Goroutine 的处理器和线程暂时分离并更新处理器的状态到 `_Psyscall`。（分离 p 和 m）
+
+#### 调用后恢复
+
+```go
+func exitsyscall() {
+	_g_ := getg()
+
+	oldp := _g_.m.oldp.ptr()
+	_g_.m.oldp = 0
+	if exitsyscallfast(oldp) {
+		_g_.m.p.ptr().syscalltick++
+		casgstatus(_g_, _Gsyscall, _Grunning)
+		...
+
+		return
+	}
+
+	mcall(exitsyscall0)
+	_g_.m.p.ptr().syscalltick++
+	_g_.throwsplit = false
+}
+```
+
+两种方式恢复： `exitsyscallfast`  和   [`exitsyscall0`](https://github.com/golang/go/blob/cf630586ca5901f4aa7817a536209f2366f9c944/src/runtime/proc.go#L3151-L3179)  
+
+#### exitsyscallfast
+
+你想想，本来 p 和 m 分离了，现在要恢复，当然就是找 p 喽，只不过是找原来的 p 或者新的 p 的区别而已。
+
+1. 如果 Goroutine 的原处理器处于 `_Psyscall` 状态，就会直接调用 `wirep` 将 Goroutine 与处理器进行关联；
+2. 如果调度器中存在闲置的处理器，就会调用 `acquirep` 函数使用闲置的处理器处理当前 Goroutine；
+
+#### exitsyscall0
+
+好了，你又可以想想，现在找 p 的方法行不通，另一种方法就是跟原来一样，空闲 g 找 m。
+
+将当前 Goroutine 切换至 `_Grunnable` 状态，并移除线程 M 和当前 Goroutine 的关联： 
+
+1. 当我们通过 `pidleget` 获取到闲置的处理器时就会在该处理器上执行 Goroutine；（找空闲的 p 运行，只不过人家是有 m 的）
+2. 在其它情况下，我们会将当前 Goroutine 放到全局的运行队列中，等待调度器的调度；（放全局队列）

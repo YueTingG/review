@@ -472,6 +472,25 @@ func (rw *RWMutex) Unlock() {
 2. 用定时器，这里需要注意，定时器不用取全部数据的时间，而是上一次取和这一次取所消耗的时间，例如，我取完某一次数据后，下一次取数据的时候（因为我肯定是循环取监听channel），等了好久，这个好久就是定时器，超过某个时间我就break。
 3. 另外就是需要对方在没有数据的时候close掉chan，这样我就可以使用ok来判断channel关闭了没有。
 
+## 怎么判断 channel 是否满了
+
+```
+
+func main() {
+	ch := make(chan int)
+
+	println(len(ch) == cap(ch)) // 判断长度跟容量是否一样了,如果满了是 true
+
+
+	select {
+	case ch <- 2: //如果满了,这个分子走不通
+	default: // 会走这个分支
+		println("Channel full. Discarding value")
+	}
+}
+
+```
+
 ## 根对象到底是什么？
 
 根对象在垃圾回收的术语中又叫做根集合，它是垃圾回收器在标记过程时最先检查的对象，包括：
