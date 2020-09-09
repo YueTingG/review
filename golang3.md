@@ -404,3 +404,88 @@ func main() {
 }
 ```
 
+## 处理输入
+
+第一种方法，用 bufio，但是这种方法不能同时和 fmt.Scan 一起使用，原因未知，所以最好还是使用原生的 fmt.Scanf
+
+```
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+)
+
+// 得到一行
+func ScanLine() {
+	reader := bufio.NewReader(os.Stdin)
+	input, _, err := reader.ReadLine()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(string(input))
+}
+
+func main() {
+	ScanLine()
+}
+
+```
+
+注意，其实 fms.Scanf 有注释，使用 %c 可以获取空格和换行符，但是必须是 byte 类型，如果你用 string 类型，是无法获取输入的
+
+```
+package main
+
+import "fmt"
+
+// 得到一行
+//1
+//i love you
+
+func main() {
+	var in byte // 关键类型
+	var bytes []byte
+	for {
+		// 关键格式化占位符 %c
+		fmt.Scanf("%c", &in)
+		if in != '\n' {
+			bytes = append(bytes, in)
+		} else {
+			break
+		}
+	}
+	fmt.Println(string(bytes))
+}
+
+```
+
+如果一定要使用 bufio，前面必须使用 fmt.Scanln，而不是 fmt.Scan，两者完全不同
+
+```
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+)
+
+// 得到一行
+//2
+//i love you
+func main() {
+	reader := bufio.NewReader(os.Stdin)
+	var num int
+	fmt.Scanln(&num) // 如果使用 fmt.Scan 下面就会获取到 '\n'，而不是正常输入了
+	fmt.Println(num)
+	text, err := reader.ReadString('\n')
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(text)
+}
+
+```
+
