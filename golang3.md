@@ -153,11 +153,11 @@ type mspan struct {
 
 ```go
 type mcache struct {
-    alloc [numSpanClasses]*mspan
+    alloc [numSpanClasses]*mspan // 数组
 }
 ```
 
-从上面可以看出，`alloc` 是一个数组，里面存放着 mspan，真正被使用其实是从这里开始。上面讲的 mspan 的使用其实是 mspan 被使用了之后，如果提取里面的跨度类。
+从上面可以看出，`alloc` 是一个数组，里面存放着 mspan **数组**，真正被使用其实是从这里开始。上面讲的 mspan 的使用其实是 mspan 被使用了之后，如果提取里面的跨度类。
 
 现在讲的是如何提取一个 mspan，概念的维度是不一样的。
 
@@ -196,7 +196,7 @@ type mcache struct {
 3. 根据 `mcache.alloc[spc]` 可以获取到里面的 `mspan`，好了到这一步一切就好办了，下面其实就是上面我们介绍的从 `mspan` 里面提取可用的跨度类对象，根据 `allocCache` 位图去判断还没有空闲对象。
 4. 如果 mcache 中的 mspan 上面没有空闲对象，那么就去 mcentral 获取，mcentral 还没有，就去 mheap 获取，mheap 没有就会去操作系统申请一块内存。
 
-## 中心缓存
+## 中心缓存（mcentral）
 
 #### 数据结构
 
@@ -224,7 +224,7 @@ type mcentral struct {
 
 如果没有则向堆申请。
 
-## 页堆
+## 页堆（mheap）
 
 #### 数据结构
 
