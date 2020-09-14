@@ -1,5 +1,7 @@
 ## context的实现原理
 
+#### 差 context.Background()
+
 ```
 	ch := make(chan int)
 	go func() {
@@ -407,7 +409,7 @@ func (rw *RWMutex) RUnlock() {
 1. 首先把当前表示所有读操作的readerCount进行--，因为读操作完成了1个。然后就是r为什么会小于0的问题，跟上面一样，因为这时候已经有一个写操作了，这个写操作把readerCount变成了一个负数，所以如果r小于0，代表现在有写操作了。
 2. `r+1 == 0 || r+1 == -rwmutexMaxReaders`这一段的目的是防止你没锁过就解锁，不深入讲。
 3. 接着也很容易想到，我现在释放读锁，那么readerWait就要--，因为我现在这个读操作已经完成了（注意上面说的减去一个很大的数是readerCount，不是readerWait，不要混了）
-4. 而readerWait代表的是写操作要等多少个读操作释放锁，现在假如readerWait为0，说明写操作要等的全部都结束了，所以我如果是最后一个读操作，我有义务去唤醒阻塞中的写操作，就是要唤醒想要进行写操作却阻塞的协程。所以调用`runtime_Semrelease(&rw.writerSem, false)`。
+4. 而readerWait代表的是写操作要等多少个读操作释放锁，现在假如readerWait为0，说明写操作要等的全部都结束了，所以**我如果是最后一个读操作**，**我有义务去唤醒阻塞中的写操作**，就是要唤醒想要进行写操作却阻塞的协程。所以调用`runtime_Semrelease(&rw.writerSem, false)`。
 
 #### Lock（加写锁）
 
@@ -469,8 +471,27 @@ func (rw *RWMutex) Unlock() {
 ## 怎么判断channel还有数据
 
 1. 我跟发送方定好长度，超过某个长度，其实就是取数据的次数，我就不再去取，直接break
+
 2. 用定时器，这里需要注意，定时器不用取全部数据的时间，而是上一次取和这一次取所消耗的时间，例如，我取完某一次数据后，下一次取数据的时候（因为我肯定是循环取监听channel），等了好久，这个好久就是定时器，超过某个时间我就break。
+
 3. 另外就是需要对方在没有数据的时候close掉chan，这样我就可以使用ok来判断channel关闭了没有。
+
+4. default
+
+   ```
+   func main() {
+   	var x int
+   	ch := make(chan int, 1)
+   	select {
+   	case x = <-ch:
+   		fmt.Println(x)
+   	default:
+   		fmt.Println("n")
+   	}
+   }
+   ```
+
+   
 
 ## 怎么判断 channel 是否满了
 

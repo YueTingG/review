@@ -24,6 +24,10 @@
 
 ## 字符串对象
 
+#### 命令
+
+`set`
+
 #### 编码对象
 
 int，raw，embstr
@@ -52,6 +56,8 @@ redis > OBJECT EXCODING number
 “raw”
 ```
 
+raw 就是**字符串**（**简单动态字符串**，简单动态字符串就是 redis 内部自己实现的字符串，**char 数组再加上两个字段**）
+
 value 是字符串的时候，注意字符串的长度要大于 39。
 
 #### embstr
@@ -64,15 +70,26 @@ redis > OBJECT EXCODING number
 “embstr”
 ```
 
-value 的值作为字符串且小于等于39。
+ `embstr` 编码是专门用于保存短字符串的一种优化编码方式， 这种编码和 `raw` 编码一样， 都使用 `redisObject` 结构和 `sdshdr` 结构来表示字符串对象，`embstr` 编码则通过调用**一次内存分配函数**来分配一块连续的空间， 空间中依次包含 `redisObject` 和 `sdshdr` 两个结构：
+
+![](C:\Users\78478\Desktop\review\graphviz-9512800b17c43f60ef9568c6b0b4921c90f7f862.png)
 
 ## LIST 列表对象
+
+#### 命令
+
+`RPUSH`
 
 #### 编码对象
 
 压缩列表，双端列表
 
+#### ziplist
 
+```
+redis> RPUSH numbers 1 "three" 5
+(integer) 3
+```
 
 ## 哈希对象
 
@@ -87,19 +104,27 @@ value 的值作为字符串且小于等于39。
 1. 哈希对象保存的所有键值对的键和值的字符串长度都小于 `64` 字节；
 2. 哈希对象保存的键值对数量小于 `512` 个；
 
-
-
 ## 集合对象
 
  集合对象的编码可以是 `intset` 或者 `hashtable` 。 
 
 **intset**
 
+```
+redis> SADD numbers 1 3 5
+(integer) 3
+```
+
 `intset` 编码的集合对象使用整数集合作为底层实现， 集合对象包含的所有元素都被保存在整数集合里面。 
 
 *其实底层就是数组*
 
 **hashtable**
+
+```
+redis> SADD fruits "apple" "banana" "cherry"
+(integer) 3
+```
 
  `hashtable` 编码的集合对象使用字典作为底层实现， 字典的每个键都是一个字符串对象， 每个字符串对象包含了一个集合元素， 而字典的值则全部被设置为 `NULL` 。 
 
@@ -134,6 +159,10 @@ Zscore（获取某个成员的得分）：需要map来实现
 
 因为以上原因， 为了让有序集合的查找和范围型操作都尽可能快地执行， Redis 选择了同时使用字典和跳跃表两种数据结构来实现有序集合。
 
+## 使用到压缩列表的
+
+list，hash，zset
+
 ## 数据结构
 
  https://redisbook.readthedocs.io/en/latest/compress-datastruct/ziplist.html#ziplist-chapter 
@@ -142,12 +171,15 @@ Zscore（获取某个成员的得分）：需要map来实现
 
 #### 数据结构
 
-压缩列表本质就是一个字节数组。
+压缩列表本质就是一个**字节数组**，连续的内存块组成。
 
 ```
 unsigned char *ziplistNew(void) {
     unsigned int bytes = ZIPLIST_HEADER_SIZE+1;
-    unsigned char *zl = zmalloc(bytes); // 字节数组，里面就是一个个entry
+    
+    // 字节数组，里面就是一个个entry
+    unsigned char *zl = zmalloc(bytes);
+    
     // 压缩列表总字节长度
     ZIPLIST_BYTES(zl) = intrev32ifbe(bytes);
     // 尾部节点字节距离
