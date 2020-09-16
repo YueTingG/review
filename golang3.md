@@ -489,3 +489,30 @@ func main() {
 
 ```
 
+柳生的方法
+
+```
+package main
+
+import (
+    "bufio"
+    "fmt"
+    "os"
+)
+
+func main() {
+    //整行读取
+    scanner := bufio.NewScanner(os.Stdin)
+    for scanner.Scan() { //扫描标准输入
+        line := scanner.Text() //将标准输入的文本
+        if line == "" {
+            break
+        }
+        fmt.Println(line)
+    }
+
+    //fmt.Scan(&num)，这种遇到空格就会返回了，无法整行读取
+}
+
+```
+
