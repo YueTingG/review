@@ -1,10 +1,8 @@
 ## 格式化保留小数
 
 ```
- fmt.Sprintf("%.2f", **value**) 
+ fmt.Sprintf("%.2f", value) 
 ```
-
-
 
 ## slice
 

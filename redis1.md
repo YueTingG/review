@@ -91,7 +91,13 @@ redis> RPUSH numbers 1 "three" 5
 (integer) 3
 ```
 
+![](C:\Users\78478\Desktop\review\graphviz-a8d31075b4c0537f4eb6d84aaba1df928c67c953.png)
+
 ## 哈希对象
+
+#### 命令
+
+`hset`
 
 #### 编码对象
 
@@ -104,22 +110,49 @@ redis> RPUSH numbers 1 "three" 5
 1. 哈希对象保存的所有键值对的键和值的字符串长度都小于 `64` 字节；
 2. 哈希对象保存的键值对数量小于 `512` 个；
 
+#### ziplist
+
+```
+redis> HSET profile name "Tom"
+(integer) 1
+
+redis> HSET profile age 25
+(integer) 1
+
+redis> HSET profile career "Programmer"
+(integer) 1
+```
+
+![](C:\Users\78478\Desktop\review\graphviz-d2524c9fe90fb5d91b5875107b257e0053794a2a.png)
+
+可以看到压缩列表的 k-v 结构：
+
+![](C:\Users\78478\Desktop\review\graphviz-7ba8b1f3af17e2e62cdf43608914333bf14d8e91.png)
+
 ## 集合对象
+
+#### 编码对象
 
  集合对象的编码可以是 `intset` 或者 `hashtable` 。 
 
-**intset**
+#### 命令
+
+`SADD`
+
+#### intset
 
 ```
 redis> SADD numbers 1 3 5
 (integer) 3
 ```
 
-`intset` 编码的集合对象使用整数集合作为底层实现， 集合对象包含的所有元素都被保存在整数集合里面。 
+![](C:\Users\78478\Desktop\review\graphviz-fbd8f0e1aaad0bdef314af55d01212f83cba8b59.png)
 
-*其实底层就是数组*
+intset` 编码的集合对象使用整数集合作为底层实现， 集合对象包含的所有元素都被保存在整数集合里面。 
 
-**hashtable**
+*其实**底层**就是**数组***
+
+#### hashtable
 
 ```
 redis> SADD fruits "apple" "banana" "cherry"
@@ -128,7 +161,7 @@ redis> SADD fruits "apple" "banana" "cherry"
 
  `hashtable` 编码的集合对象使用字典作为底层实现， 字典的每个键都是一个字符串对象， 每个字符串对象包含了一个集合元素， 而字典的值则全部被设置为 `NULL` 。 
 
-**编码转换**
+#### 编码转换
 
 当集合对象可以同时满足以下两个条件时， 对象使用 `intset` 编码：
 
@@ -139,13 +172,32 @@ redis> SADD fruits "apple" "banana" "cherry"
 
 ## 有序集合对象
 
+#### 编码对象
+
  有序集合的编码可以是 `ziplist` 或者 `skiplist` 。 
 
-**skiplist**的实现
+#### 命令
+
+`ZADD`
+
+#### ziplist
+
+注意里面有**分数**。
+
+```
+redis> ZADD price 8.5 apple 5.0 banana 6.0 cherry
+(integer) 3
+```
+
+![](C:\Users\78478\Desktop\review\graphviz-61b04c9bb72915ec0374125ba9455bc6783db4ff.png)
+
+![](C:\Users\78478\Desktop\review\graphviz-8d7b7d0e78ad9d445ff14834e9e9618234395d46.png)
+
+#### skiplist 的实现
 
 主要是map+skiplist，map存储value到score的映射，根据value可以获取score，再根据score去跳跃表上找对应的结点。
 
-**为什么有序集合需要同时使用跳跃表和字典来实现？**
+#### 为什么有序集合需要同时使用跳跃表和字典来实现？
 
 ZRANK，ZRANGE：需要跳跃表来实现
 
