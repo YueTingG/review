@@ -437,7 +437,7 @@ func (rw *RWMutex) Lock() {
 4. 然后做完上面的操作以后的r其实就是原来的readerCount，那么我现在要获取写锁，我自然要知道我要等多少个读操作，因为读操作会不断++，我只要我现在要等多少个，后面++不管我现在的事，所以要获取r，然后赋值给readerWait。
 5. 后面进行判断，如果原来的readerCount不为0（原来有协程已经获取到了读锁）并且将readerWait加上readerCount（表示需要等待readerCount这么多个读锁进行解锁）后也不等于0，如果满足上述条件证明原来有读锁，所以暂时没有办法获取到写锁，所以调用runtime_Semacquire进行等待，等待的信号量为writerSem
 
-#### RUnlock（释放读锁）
+#### Unlock（释放写锁）
 
 ```
 func (rw *RWMutex) Unlock() {
@@ -470,9 +470,23 @@ func (rw *RWMutex) Unlock() {
 
 ## 怎么判断channel还有数据
 
-1. 我跟发送方定好长度，超过某个长度，其实就是取数据的次数，我就不再去取，直接break
+1. 我跟发送方**定好长度**，超过某个长度，其实就是取数据的次数，我就不再去取，直接break
 
-2. 用定时器，这里需要注意，定时器不用取全部数据的时间，而是上一次取和这一次取所消耗的时间，例如，我取完某一次数据后，下一次取数据的时候（因为我肯定是循环取监听channel），等了好久，这个好久就是定时器，超过某个时间我就break。
+2. 用**定时器**，这里需要注意，定时器不用取全部数据的时间，而是上一次取和这一次取所消耗的时间，例如，我取完某一次数据后，下一次取数据的时候（因为我肯定是循环取监听channel），等了好久，这个好久就是定时器，超过某个时间我就break。
+
+   ```
+   func main() {
+   	ticker := time.NewTicker(time.Second * 2)
+   	ch := make(chan int, 1)
+   
+   	select {
+   	case <-ch:
+   		fmt.Println("get chan")
+   	case <-ticker.C: // 记住要 .C
+   		fmt.Println("time out")
+   	}
+   }
+   ```
 
 3. 另外就是需要对方在没有数据的时候close掉chan，这样我就可以使用ok来判断channel关闭了没有。
 
@@ -491,7 +505,6 @@ func (rw *RWMutex) Unlock() {
    }
    ```
 
-   
 
 ## 怎么判断 channel 是否满了
 

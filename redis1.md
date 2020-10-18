@@ -93,6 +93,15 @@ redis> RPUSH numbers 1 "three" 5
 
 ![](C:\Users\78478\Desktop\review\graphviz-a8d31075b4c0537f4eb6d84aaba1df928c67c953.png)
 
+#### linkedlist 对象
+
+```
+redis> RPUSH numbers 1 "three" 5
+(integer) 3
+```
+
+![](C:\Users\78478\Desktop\review\graphviz-84c0d231f30c740a431407c7aaf3851b96399590.png)
+
 ## 哈希对象
 
 #### 命令
@@ -148,7 +157,7 @@ redis> SADD numbers 1 3 5
 
 ![](C:\Users\78478\Desktop\review\graphviz-fbd8f0e1aaad0bdef314af55d01212f83cba8b59.png)
 
-intset` 编码的集合对象使用整数集合作为底层实现， 集合对象包含的所有元素都被保存在整数集合里面。 
+`intset` 编码的集合对象使用整数集合作为底层实现， 集合对象包含的所有元素都被保存在整数集合里面。 
 
 *其实**底层**就是**数组***
 
@@ -159,7 +168,9 @@ redis> SADD fruits "apple" "banana" "cherry"
 (integer) 3
 ```
 
- `hashtable` 编码的集合对象使用字典作为底层实现， 字典的每个键都是一个字符串对象， 每个字符串对象包含了一个集合元素， 而字典的值则全部被设置为 `NULL` 。 
+![](C:\Users\78478\Desktop\review\graphviz-3f77c5cca338422f418d6d11bc02109fc945e790.png)
+
+`hashtable` 编码的集合对象使用字典作为底层实现， 字典的每个键都是一个字符串对象， 每个字符串对象包含了一个集合元素， 而字典的值则全部被设置为 `NULL` 。 
 
 #### 编码转换
 
