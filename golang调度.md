@@ -581,6 +581,8 @@ linux平台下，是调用 `clone` 系统调用来实现创建线程。然而，
 
 #### gopark 函数
 
+https://blog.csdn.net/u010853261/article/details/85887948
+
 [`runtime.gopark`](https://github.com/golang/go/blob/64c22b70bf00e15615bb17c29f808b55bc339682/src/runtime/proc.go#L287) 是触发调度最常见的方法，该函数会将当前 Goroutine 暂停，**被暂停的任务不会放回运行队列**，我们来分析该函数的实现原理： 
 
 ```go

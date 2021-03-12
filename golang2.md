@@ -1,5 +1,20 @@
 ## context的实现原理
 
+#### context 的作用
+
+一般来讲，结合使用场景来讲比较符合人的思维，你想想嘛，别人问你它的作用，你一般的思考都是想想自己平时怎么用它的，然后讲出来。
+
+这里推荐伴鱼里面的场景 https://xie.infoq.cn/article/3e18dd6d335d1a6ab552a88e8 其他部分也可以看看
+
+我觉得比较符合我自己的理解，网上其他解答都让我摸不着头脑。 
+
+场景：
+
+1. 请求链路传递参数（值）
+2. 超时控制
+
+**高大上**：通过类似于超时的设置，达到控制 goroutine 的生命周期的目的。
+
 #### 差 context.Background()
 
 ```
@@ -13,7 +28,7 @@
 	fmt.Println(x)
 ```
 
-首先看上面的一串代码，x一直无法执行，因为里面没有数据，但是goroutine如果执行close后，x能否从channel中读出数据呢？答案是不能，但是读取channel却不会变得阻塞，可以看以下代码
+首先看上面的一串代码，x一直无法执行，因为里面没有数据，但是 goroutine 如果执行close后，x 能否从channel 中读出数据呢？答案是不能，但是读取 channel ，`x := ch` 这一行却不会变得阻塞，可以看以下代码
 
 ```
 	ch := make(chan int)
@@ -30,7 +45,7 @@
 
 **为什么要提这个呢？因为这个就是cancelCtx的cancel机制**
 
-context内部有一个done的channel，它是怎么通知别的协程cancel？答案就是直接把done给close了，然后别线程发现，哎呦done不阻塞了，那肯定是cancel了。
+context 内部有一个 done 的 channel，它是怎么通知别的协程 cancel？答案就是直接把 done 给 close 了，然后别线程发现，哎呦 done 不阻塞了，那肯定是cancel了。
 
 #### cancelCtx
 
@@ -47,7 +62,7 @@ type cancelCtx struct {
 
 ##### children
 
-内部有两个比较重要的字段，一个是children里面装着全部的children，调用cancel的时候，会把所有的childre取出来然后所有的children都调用cancel，也就是递归调用，保证所有的子都cancel掉了。
+内部有两个比较重要的字段，一个是 children 里面装着全部的 children，调用 cancel 的时候，会把所有的childre取出来然后所有的 children 都调用 cancel，也就是递归调用，保证所有的子都cancel掉了。
 
 ##### done
 
@@ -90,7 +105,7 @@ func (c *cancelCtx) cancel(removeFromParent bool, err error) {
 
 ```
 type timerCtx struct {
-	cancelCtx
+	cancelCtx // 从这里可以看出来它的 cancel() 是基于 cancelCtx，剩下的就是多出了 timer。
 	timer *time.Timer // Under cancelCtx.mu.
 
 	deadline time.Time
@@ -99,11 +114,11 @@ type timerCtx struct {
 
 ##### cancel
 
-对应的就是 WithDeadline 函数，首先cancel里面的通知机制跟cancelCtx一样，都是关闭done，同时timerCtx内部还有一个timer，cancel也会关闭timer，减少不必要的浪费。
+对应的就是 WithDeadline 函数，首先 cancel 里面的通知机制跟 cancelCtx 一样，都是关闭 done，同时 timerCtx 内部还有一个 timer，cancel也会关闭 timer，减少不必要的浪费。
 
-##### 定时cancel
+##### 定时 cancel
 
-这个才是最重要的，到底timerCtx是怎么定时cancel，我们已经知道了主动cancel的结果，就是关闭done然后关闭定时器。
+这个才是最重要的，到底 timerCtx 是怎么定时 cancel，我们已经知道了主动 cancel 的结果，就是关闭 done 然后关闭定时器。
 
 在初始化的时候也就是调用 WithDeadline 的时候，就会生成一个定时器里面需要传入超时时间以及一个超时后执行的函数，timerCtx传入的函数就是cancel函数，所以相当于定时器内部会帮timerCtx检查现在是否超时，如果超时则调用cancel函数。
 
@@ -111,8 +126,8 @@ type timerCtx struct {
 
 ##### 总结
 
-1. 它的cancel本身就是关闭done，在cancelCtx的基础上多关闭了定时器减少浪费。
-2. 然后最终就是定时问题，这个部分最终的就是检查当前时间跟超时时间，这件事本身却是定时器去完成的，timerCtx只是创建了这么一个结构体，然后传入一个超时后执行函数，这个执行函数就是cancel。保证超时后关闭timerCtx。
+1. 它的 cancel 本身就是关闭 done，在 cancelCtx 的基础上多关闭了定时器减少浪费。
+2. 然后最终就是定时问题，这个部分最终的就是检查当前时间跟超时时间，这件事本身却是定时器去完成的，timerCtx 只是创建了这么一个结构体，然后传入一个超时后执行函数，这个执行函数就是 cancel。保证超时后关闭 timerCtx。
 
 ##### 代码
 
@@ -153,7 +168,7 @@ func WithTimeout(parent Context, timeout time.Duration) (Context, CancelFunc) {
 }
 ```
 
-把timeout加在现在的时间上，然后传给 WithDeadline 就完事了。
+把 timeout 加在现在的时间上，然后传给 WithDeadline 就完事了。
 
 #### valueCtx
 
@@ -164,7 +179,7 @@ type valueCtx struct {
 }
 ```
 
-在context的基础上多存了一对key-val，取数据也挺简单的，就是比较以下key是否相同，如果相同则返回val，如果不同则调用context的value，最原始的Background返回的是nil，所以最少返回nil，也是递归向父级寻找是否有key，如果没有最后返回nil（最开始是Background的情况下）。
+在context的基础上多存了一对 key-val，取数据也挺简单的，就是比较以下key是否相同，如果相同则返回 val，如果不同则调用 context 的 value，最原始的Background返回的是nil，所以最少返回nil，也是递归向父级寻找是否有key，如果没有最后返回nil（最开始是Background的情况下）。
 
 ```
 func (c *valueCtx) Value(key interface{}) interface{} {
@@ -174,6 +189,10 @@ func (c *valueCtx) Value(key interface{}) interface{} {
 	return c.Context.Value(key)
 }
 ```
+
+##### 注意
+
+一个 valueCtx 只能存储一对 kv，要多存储 kv，只能通过创建多个 valueCtx。
 
 ## 位移运算符
 
