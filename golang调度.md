@@ -219,7 +219,7 @@ func execute(gp *g, inheritTime bool) {
 
 ![](C:\Users\78478\Desktop\review\2020-02-05-15808864354661-golang-gogo-stack.png)
 
-以上三个之类模拟了 call 指令，goexit 是用来退出 goroutine，先不用管，我们获取到 runtime.main 的程序计数器之后，`JMP` 到那个位置就能自动执行 runtime.main 函数了（你就只需要知道跳到函数的程序计数器就可以执行函数，而 Goroutine 的作用就是执行函数，就行了）。
+以上三个之类模拟了 call 指令，图中的 goexit 是用来退出 goroutine，先不用管，我们获取到 runtime.main 的程序计数器之后，`JMP` 到那个位置就能自动执行 runtime.main 函数了（你就只需要知道跳到函数的程序计数器就可以执行函数，而 Goroutine 的作用就是执行函数，就行了）。
 
 #### 执行 runtime.main
 
@@ -275,7 +275,7 @@ func main() {
 
 ## 创建 goroutine
 
- 想要启动一个新的 Goroutine 来执行任务时，我们需要使用 Go 语言中的 `go` 关键字，这个关键字会在编译期间通过以下方法 `cmd/compile/internal/gc.state.stmt` 和 `cmd/compile/internal/gc.state.call` 两个方法将该关键字转换成 `runtime.newproc` 函数调用： 
+想要启动一个新的 Goroutine 来执行任务时，我们需要使用 Go 语言中的 `go` 关键字，这个关键字会在编译期间通过以下方法 `cmd/compile/internal/gc.state.stmt` 和 `cmd/compile/internal/gc.state.call` 两个方法将该关键字转换成 `runtime.newproc` 函数调用： 
 
 ```go
 // 新建一个goroutine，
